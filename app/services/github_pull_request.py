@@ -1,6 +1,7 @@
 import httpx
 
 from app.core.github_auth import create_installation_access_token
+from app.schemas.pull_request import PullRequestFile
 
 
 GITHUB_API_BASE = "https://api.github.com"
@@ -11,7 +12,7 @@ async def get_pull_request_files(
     owner: str,
     repo: str,
     pull_request_number: int,
-) -> list[dict]:
+) -> list[PullRequestFile]:
     """
     Fetch the files changed in a GitHub pull request.
     """
@@ -40,4 +41,9 @@ async def get_pull_request_files(
 
     response.raise_for_status()
 
-    return response.json()
+    data = response.json()
+
+    return [
+        PullRequestFile.model_validate(file)
+        for file in data
+    ]

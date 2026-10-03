@@ -25,6 +25,23 @@ def test_github_webhook_valid_signature():
     payload = {
         "action": "opened",
         "number": 42,
+        "pull_request": {
+            "number": 42,
+            "title": "Test PR",
+            "user": {
+                "login": "Lohith-004"
+            },
+            "head": {
+                "sha": "abc123head"
+            },
+            "base": {
+                "sha": "def456base"
+            }
+        },
+    "repository": {
+        "name": "ReviewPilot",
+        "full_name": "Lohith-004/ReviewPilot"
+        }
     }
 
     body = json.dumps(payload).encode("utf-8")
@@ -47,6 +64,12 @@ def test_github_webhook_valid_signature():
     assert data["event"] == "pull_request"
     assert data["delivery_id"] == "test-delivery-123"
     assert data["action"] == "opened"
+    assert data["repository"] == "Lohith-004/ReviewPilot"
+    assert data["pr_number"] == 42
+    assert data["pr_title"] == "Test PR"
+    assert data["author"] == "Lohith-004"
+    assert data["head_sha"] == "abc123head"
+    assert data["base_sha"] == "def456base"
 
 
 def test_github_webhook_invalid_signature():

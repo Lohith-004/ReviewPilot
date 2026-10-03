@@ -6,6 +6,8 @@ from sqlalchemy import create_engine, pool
 from app.core.config import settings
 from app.db.base import Base
 
+import app.db.models
+
 # Alembic Config object
 config = context.config
 

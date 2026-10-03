@@ -26,7 +26,8 @@ def test_github_webhook_valid_signature():
         "action": "opened",
         "number": 42,
         "installation": {
-            "id": 167303229
+            "id": 167303229,
+            "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTY3MzAzMjI5"
         },
         "pull_request": {
             "number": 42,

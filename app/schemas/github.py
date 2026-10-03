@@ -23,6 +23,7 @@ class PullRequestData(BaseModel):
 
 class GitHubInstallation(BaseModel):
     id: int
+    node_id: str
 
 
 class PullRequestEvent(BaseModel):

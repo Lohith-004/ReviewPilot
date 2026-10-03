@@ -1,0 +1,43 @@
+import httpx
+
+from app.core.github_auth import create_installation_access_token
+
+
+GITHUB_API_BASE = "https://api.github.com"
+
+
+async def get_pull_request_files(
+    installation_id: int,
+    owner: str,
+    repo: str,
+    pull_request_number: int,
+) -> list[dict]:
+    """
+    Fetch the files changed in a GitHub pull request.
+    """
+
+    access_token = await create_installation_access_token(
+        installation_id
+    )
+
+    url = (
+        f"{GITHUB_API_BASE}/repos/"
+        f"{owner}/{repo}/pulls/{pull_request_number}/files"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2026-03-10",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            url,
+            headers=headers,
+            params={"per_page": 100},
+        )
+
+    response.raise_for_status()
+
+    return response.json()

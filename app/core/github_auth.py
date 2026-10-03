@@ -1,8 +1,8 @@
 from pathlib import Path
 from time import time
 
-import jwt
 import httpx
+import jwt
 
 from app.core.config import settings
 
@@ -28,6 +28,7 @@ def create_github_app_jwt() -> str:
         algorithm="RS256",
     )
 
+
 async def create_installation_access_token(
     installation_id: int,
 ) -> str:
@@ -49,10 +50,44 @@ async def create_installation_access_token(
     }
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(url, headers=headers)
+        response = await client.post(
+            url,
+            headers=headers,
+        )
 
     response.raise_for_status()
 
     data = response.json()
 
     return data["token"]
+
+
+async def get_installation_details(
+    installation_id: int,
+) -> dict:
+    """
+    Get details about a GitHub App installation.
+    """
+
+    app_jwt = create_github_app_jwt()
+
+    url = (
+        f"https://api.github.com/app/installations/"
+        f"{installation_id}"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {app_jwt}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2026-03-10",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            url,
+            headers=headers,
+        )
+
+    response.raise_for_status()
+
+    return response.json()

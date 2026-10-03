@@ -40,6 +40,7 @@ async def github_webhook(
         "event": x_github_event,
         "delivery_id": x_github_delivery,
         "action": event.action,
+        "installation_id": event.installation.id,
         "repository": event.repository.full_name,
         "pr_number": event.number,
         "pr_title": event.pull_request.title,

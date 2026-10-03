@@ -21,9 +21,13 @@ class PullRequestData(BaseModel):
     head: PullRequestRef
     base: PullRequestRef
 
+class GitHubInstallation(BaseModel):
+    id: int
+
 
 class PullRequestEvent(BaseModel):
     action: str
     number: int
+    installation: GitHubInstallation
     pull_request: PullRequestData
     repository: PullRequestRepository

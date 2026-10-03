@@ -25,6 +25,9 @@ def test_github_webhook_valid_signature():
     payload = {
         "action": "opened",
         "number": 42,
+        "installation": {
+            "id": 167303229
+        },
         "pull_request": {
             "number": 42,
             "title": "Test PR",
@@ -64,6 +67,7 @@ def test_github_webhook_valid_signature():
     assert data["event"] == "pull_request"
     assert data["delivery_id"] == "test-delivery-123"
     assert data["action"] == "opened"
+    assert data["installation_id"] == 167303229
     assert data["repository"] == "Lohith-004/ReviewPilot"
     assert data["pr_number"] == 42
     assert data["pr_title"] == "Test PR"

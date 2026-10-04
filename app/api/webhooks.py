@@ -4,7 +4,6 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 
 from app.core.config import settings
 from app.services.github_webhook import verify_github_signature
-
 from app.schemas.github import PullRequestEvent
 
 router = APIRouter()
@@ -32,7 +31,6 @@ async def github_webhook(
         )
 
     data = json.loads(payload)
-
     event = PullRequestEvent.model_validate(data)
 
     return {

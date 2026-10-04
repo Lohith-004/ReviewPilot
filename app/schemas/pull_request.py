@@ -8,3 +8,10 @@ class PullRequestFile(BaseModel):
     deletions: int
     changes: int
     patch: str | None = None
+
+
+class DiffChunk(BaseModel):
+    filename: str
+    patch: str
+    chunk_index: int
+    total_chunks: int

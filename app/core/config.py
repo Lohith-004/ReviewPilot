@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     github_private_key_path: str
     github_webhook_secret: str
 
+    gemini_api_key: str
+    gemini_model: str = "gemini-2.5-flash"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

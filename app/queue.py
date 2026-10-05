@@ -4,11 +4,10 @@ from rq import Queue
 from app.core.config import settings
 
 
-redis_connection = Redis.from_url(
-    settings.redis_url,
-)
+redis_connection = Redis.from_url(settings.redis_url)
 
 review_queue = Queue(
     "reviewpilot",
     connection=redis_connection,
+    default_timeout=600,
 )

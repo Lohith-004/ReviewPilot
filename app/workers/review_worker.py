@@ -5,6 +5,11 @@ from app.services.github_pull_request import get_pull_request_details
 from app.services.github_review import create_pull_request_review
 from app.services.review_comments import build_github_review_comments
 from app.services.review_job import review_pull_request
+from app.services.review_persistence import (
+    complete_review_run,
+    create_review_run,
+    fail_review_run,
+)
 
 
 def process_review_job(
@@ -25,20 +30,6 @@ def process_review_job(
             f"{owner}/{repo}#{pull_request_number}"
         )
 
-        review_start = time.perf_counter()
-
-        results = await review_pull_request(
-            installation_id=installation_id,
-            owner=owner,
-            repo=repo,
-            pull_request_number=pull_request_number,
-        )
-
-        print(
-            f"[WORKER] Diff + Gemini stage completed "
-            f"in {time.perf_counter() - review_start:.2f}s"
-        )
-
         details_start = time.perf_counter()
 
         pr_details = await get_pull_request_details(
@@ -53,49 +44,99 @@ def process_review_job(
             f"in {time.perf_counter() - details_start:.2f}s"
         )
 
-        all_findings = []
-
-        for result in results:
-            all_findings.extend(result.findings)
-
-        print(
-            f"[WORKER] Total findings collected: "
-            f"{len(all_findings)}"
+        review_run = create_review_run(
+            repository=f"{owner}/{repo}",
+            pull_request_number=pull_request_number,
+            commit_sha=pr_details["head_sha"],
         )
 
-        comments = build_github_review_comments(all_findings)
+        print(
+            f"[DB] Created review run "
+            f"id={review_run.id} status={review_run.status}"
+        )
 
-        review = None
-
-        if comments:
+        try:
             review_start = time.perf_counter()
 
-            review = await create_pull_request_review(
+            results = await review_pull_request(
                 installation_id=installation_id,
                 owner=owner,
                 repo=repo,
                 pull_request_number=pull_request_number,
-                commit_id=pr_details["head_sha"],
-                body=(
-                    f"ReviewPilot found {len(all_findings)} "
-                    f"potential issue(s) in this pull request."
-                ),
-                comments=comments,
             )
 
             print(
-                f"[WORKER] GitHub review posted "
+                f"[WORKER] Diff + Gemini stage completed "
                 f"in {time.perf_counter() - review_start:.2f}s"
             )
-        else:
-            print("[WORKER] No findings. Skipping GitHub review.")
 
-        print(
-            f"[WORKER] Total pipeline time: "
-            f"{time.perf_counter() - pipeline_start:.2f}s"
-        )
+            all_findings = []
 
-        return results, review
+            for result in results:
+                all_findings.extend(result.findings)
+
+            print(
+                f"[WORKER] Total findings collected: "
+                f"{len(all_findings)}"
+            )
+
+            complete_review_run(
+                review_run_id=review_run.id,
+                findings=all_findings,
+            )
+
+            print(
+                f"[DB] Review run {review_run.id} "
+                f"marked completed with "
+                f"{len(all_findings)} findings"
+            )
+
+            comments = build_github_review_comments(all_findings)
+
+            review = None
+
+            if comments:
+                review_start = time.perf_counter()
+
+                review = await create_pull_request_review(
+                    installation_id=installation_id,
+                    owner=owner,
+                    repo=repo,
+                    pull_request_number=pull_request_number,
+                    commit_id=pr_details["head_sha"],
+                    body=(
+                        f"ReviewPilot found {len(all_findings)} "
+                        f"potential issue(s) in this pull request."
+                    ),
+                    comments=comments,
+                )
+
+                print(
+                    f"[WORKER] GitHub review posted "
+                    f"in {time.perf_counter() - review_start:.2f}s"
+                )
+            else:
+                print(
+                    "[WORKER] No findings. "
+                    "Skipping GitHub review."
+                )
+
+            print(
+                f"[WORKER] Total pipeline time: "
+                f"{time.perf_counter() - pipeline_start:.2f}s"
+            )
+
+            return results, review
+
+        except Exception:
+            fail_review_run(review_run.id)
+
+            print(
+                f"[DB] Review run {review_run.id} "
+                "marked failed"
+            )
+
+            raise
 
     results, review = asyncio.run(run_review())
 

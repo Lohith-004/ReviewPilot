@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.queue import review_queue
 from app.schemas.github import PullRequestEvent
 from app.services.github_webhook import verify_github_signature
+from app.services.webhook_persistence import record_webhook_delivery
 
 
 router = APIRouter()
@@ -50,7 +51,27 @@ async def github_webhook(
             "action": event.action,
         }
 
+    if not x_github_delivery:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing GitHub delivery ID",
+        )
+
     owner, repo = event.repository.full_name.split("/", 1)
+
+    is_new_delivery = record_webhook_delivery(
+        delivery_id=x_github_delivery,
+        event=x_github_event,
+        repository=event.repository.full_name,
+    )
+
+    if not is_new_delivery:
+        return {
+            "status": "duplicate",
+            "event": x_github_event,
+            "delivery_id": x_github_delivery,
+            "repository": event.repository.full_name,
+        }
 
     job = review_queue.enqueue(
         "app.workers.review_worker.process_review_job",

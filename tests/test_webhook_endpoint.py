@@ -57,7 +57,10 @@ def test_github_webhook_valid_signature():
     with patch(
         "app.api.webhooks.review_queue.enqueue",
         return_value=mock_job,
-    ) as mock_enqueue:
+    ) as mock_enqueue, patch(
+        "app.api.webhooks.record_webhook_delivery",
+        return_value=True,
+    ) as mock_record:
 
         response = client.post(
             "/api/v1/webhooks/github",
@@ -85,6 +88,93 @@ def test_github_webhook_valid_signature():
     assert data["head_sha"] == "abc123head"
     assert data["base_sha"] == "def456base"
     assert data["job_id"] == "test-job-123"
+
+    mock_record.assert_called_once_with(
+        delivery_id="test-delivery-123",
+        event="pull_request",
+        repository="Lohith-004/ReviewPilot",
+    )
+
+    mock_enqueue.assert_called_once_with(
+        "app.workers.review_worker.process_review_job",
+        installation_id=167303229,
+        owner="Lohith-004",
+        repo="ReviewPilot",
+        pull_request_number=42,
+    )
+
+
+def test_github_webhook_duplicate_delivery():
+    payload = {
+        "action": "opened",
+        "number": 42,
+        "installation": {
+            "id": 167303229,
+            "node_id": "test-node",
+        },
+        "pull_request": {
+            "number": 42,
+            "title": "Duplicate Test PR",
+            "user": {
+                "login": "Lohith-004",
+            },
+            "head": {
+                "sha": "duplicate-head",
+            },
+            "base": {
+                "sha": "duplicate-base",
+            },
+        },
+        "repository": {
+            "name": "ReviewPilot",
+            "full_name": "Lohith-004/ReviewPilot",
+        },
+    }
+
+    body = json.dumps(payload).encode("utf-8")
+
+    mock_job = MagicMock()
+    mock_job.id = "duplicate-test-job"
+
+    with patch(
+        "app.api.webhooks.review_queue.enqueue",
+        return_value=mock_job,
+    ) as mock_enqueue, patch(
+        "app.api.webhooks.record_webhook_delivery",
+        side_effect=[True, False],
+    ) as mock_record:
+
+        headers = {
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "duplicate-delivery-123",
+            "X-Hub-Signature-256": create_signature(body),
+        }
+
+        first_response = client.post(
+            "/api/v1/webhooks/github",
+            content=body,
+            headers=headers,
+        )
+
+        second_response = client.post(
+            "/api/v1/webhooks/github",
+            content=body,
+            headers=headers,
+        )
+
+    assert first_response.status_code == 202
+    assert first_response.json()["status"] == "accepted"
+
+    assert second_response.status_code == 202
+    assert second_response.json()["status"] == "duplicate"
+
+    assert mock_record.call_count == 2
+
+    mock_record.assert_any_call(
+        delivery_id="duplicate-delivery-123",
+        event="pull_request",
+        repository="Lohith-004/ReviewPilot",
+    )
 
     mock_enqueue.assert_called_once_with(
         "app.workers.review_worker.process_review_job",

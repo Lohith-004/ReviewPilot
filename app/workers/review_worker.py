@@ -80,17 +80,6 @@ def process_review_job(
                 f"{len(all_findings)}"
             )
 
-            complete_review_run(
-                review_run_id=review_run.id,
-                findings=all_findings,
-            )
-
-            print(
-                f"[DB] Review run {review_run.id} "
-                f"marked completed with "
-                f"{len(all_findings)} findings"
-            )
-
             comments = build_github_review_comments(all_findings)
 
             review = None
@@ -120,6 +109,17 @@ def process_review_job(
                     "[WORKER] No findings. "
                     "Skipping GitHub review."
                 )
+
+            complete_review_run(
+                review_run_id=review_run.id,
+                findings=all_findings,
+            )
+
+            print(
+                f"[DB] Review run {review_run.id} "
+                f"marked completed with "
+                f"{len(all_findings)} findings"
+            )
 
             print(
                 f"[WORKER] Total pipeline time: "

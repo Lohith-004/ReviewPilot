@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -27,38 +28,46 @@ def test_github_webhook_valid_signature():
         "number": 42,
         "installation": {
             "id": 167303229,
-            "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTY3MzAzMjI5"
+            "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTY3MzAzMjI5",
         },
         "pull_request": {
             "number": 42,
             "title": "Test PR",
             "user": {
-                "login": "Lohith-004"
+                "login": "Lohith-004",
             },
             "head": {
-                "sha": "abc123head"
+                "sha": "abc123head",
             },
             "base": {
-                "sha": "def456base"
-            }
+                "sha": "def456base",
+            },
         },
-    "repository": {
-        "name": "ReviewPilot",
-        "full_name": "Lohith-004/ReviewPilot"
-        }
+        "repository": {
+            "name": "ReviewPilot",
+            "full_name": "Lohith-004/ReviewPilot",
+        },
     }
 
     body = json.dumps(payload).encode("utf-8")
 
-    response = client.post(
-        "/api/v1/webhooks/github",
-        content=body,
-        headers={
-            "X-GitHub-Event": "pull_request",
-            "X-GitHub-Delivery": "test-delivery-123",
-            "X-Hub-Signature-256": create_signature(body),
-        },
-    )
+    mock_job = MagicMock()
+    mock_job.id = "test-job-123"
+
+    with patch(
+        "app.api.webhooks.review_queue.enqueue",
+        return_value=mock_job,
+    ) as mock_enqueue:
+
+        response = client.post(
+            "/api/v1/webhooks/github",
+            content=body,
+            headers={
+                "X-GitHub-Event": "pull_request",
+                "X-GitHub-Delivery": "test-delivery-123",
+                "X-Hub-Signature-256": create_signature(body),
+            },
+        )
 
     assert response.status_code == 202
 
@@ -75,6 +84,15 @@ def test_github_webhook_valid_signature():
     assert data["author"] == "Lohith-004"
     assert data["head_sha"] == "abc123head"
     assert data["base_sha"] == "def456base"
+    assert data["job_id"] == "test-job-123"
+
+    mock_enqueue.assert_called_once_with(
+        "app.workers.review_worker.process_review_job",
+        installation_id=167303229,
+        owner="Lohith-004",
+        repo="ReviewPilot",
+        pull_request_number=42,
+    )
 
 
 def test_github_webhook_invalid_signature():

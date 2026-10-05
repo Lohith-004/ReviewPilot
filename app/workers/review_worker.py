@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from app.services.github_pull_request import get_pull_request_details
 from app.services.github_review import create_pull_request_review
@@ -17,12 +18,28 @@ def process_review_job(
     """
 
     async def run_review():
+        pipeline_start = time.perf_counter()
+
+        print(
+            f"[WORKER] Starting review pipeline: "
+            f"{owner}/{repo}#{pull_request_number}"
+        )
+
+        review_start = time.perf_counter()
+
         results = await review_pull_request(
             installation_id=installation_id,
             owner=owner,
             repo=repo,
             pull_request_number=pull_request_number,
         )
+
+        print(
+            f"[WORKER] Diff + Gemini stage completed "
+            f"in {time.perf_counter() - review_start:.2f}s"
+        )
+
+        details_start = time.perf_counter()
 
         pr_details = await get_pull_request_details(
             installation_id=installation_id,
@@ -31,16 +48,28 @@ def process_review_job(
             pull_request_number=pull_request_number,
         )
 
+        print(
+            f"[WORKER] PR details fetched "
+            f"in {time.perf_counter() - details_start:.2f}s"
+        )
+
         all_findings = []
 
         for result in results:
             all_findings.extend(result.findings)
+
+        print(
+            f"[WORKER] Total findings collected: "
+            f"{len(all_findings)}"
+        )
 
         comments = build_github_review_comments(all_findings)
 
         review = None
 
         if comments:
+            review_start = time.perf_counter()
+
             review = await create_pull_request_review(
                 installation_id=installation_id,
                 owner=owner,
@@ -53,6 +82,18 @@ def process_review_job(
                 ),
                 comments=comments,
             )
+
+            print(
+                f"[WORKER] GitHub review posted "
+                f"in {time.perf_counter() - review_start:.2f}s"
+            )
+        else:
+            print("[WORKER] No findings. Skipping GitHub review.")
+
+        print(
+            f"[WORKER] Total pipeline time: "
+            f"{time.perf_counter() - pipeline_start:.2f}s"
+        )
 
         return results, review
 

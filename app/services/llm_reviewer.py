@@ -1,4 +1,8 @@
+import asyncio
+import time
+
 from google import genai
+from google.genai.errors import APIError
 
 from app.core.config import settings
 from app.schemas.review import ReviewResult
@@ -32,34 +36,72 @@ SYSTEM_PROMPT = (
 
 
 class LLMReviewer:
-    def __init__(self) -> None:
-        self.client = genai.Client(
-            api_key=settings.gemini_api_key,
-        )
+    MAX_RETRIES = 3
+    INITIAL_BACKOFF_SECONDS = 2
 
-    async def review(
-        self,
-        filename: str,
-        patch: str,
-    ) -> ReviewResult:
+    def __init__(self) -> None:
+        self.client = genai.Client(api_key=settings.gemini_api_key)
+
+    async def review(self, filename: str, patch: str) -> ReviewResult:
+        start_time = time.perf_counter()
+
         prompt = (
             f"{SYSTEM_PROMPT}\n\n"
-            "Review this GitHub pull request diff.\n\n"
+            "Review this GitHub pull request diff carefully.\n\n"
             f"File:\n{filename}\n\n"
             f"Diff:\n{patch}\n\n"
             "Return only the structured review result."
         )
 
-        interaction = await self.client.aio.interactions.create(
-            model=settings.gemini_model,
-            input=prompt,
-            response_format={
-                "type": "text",
-                "mime_type": "application/json",
-                "schema": ReviewResult.model_json_schema(),
-            },
-        )
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                print(
+                    f"[LLM] Starting review: {filename} "
+                    f"(attempt {attempt}/{self.MAX_RETRIES})"
+                )
 
-        return ReviewResult.model_validate_json(
-            interaction.output_text
-        )
+                interaction = await self.client.aio.interactions.create(
+                    model=settings.gemini_model,
+                    input=prompt,
+                    response_format={
+                        "type": "text",
+                        "mime_type": "application/json",
+                        "schema": ReviewResult.model_json_schema(),
+                    },
+                )
+
+                elapsed = time.perf_counter() - start_time
+
+                print(
+                    f"[LLM] Completed review: {filename} "
+                    f"in {elapsed:.2f}s"
+                )
+
+                return ReviewResult.model_validate_json(
+                    interaction.output_text
+                )
+
+            except APIError as exc:
+                status_code = getattr(exc, "code", None)
+
+                if status_code not in {429, 500, 502, 503, 504}:
+                    raise
+
+                if attempt == self.MAX_RETRIES:
+                    print(
+                        f"[LLM] Gemini failed after {self.MAX_RETRIES} "
+                        f"attempts: {filename}"
+                    )
+                    raise
+
+                backoff = self.INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1))
+
+                print(
+                    f"[LLM] Gemini temporarily unavailable "
+                    f"(HTTP {status_code}). "
+                    f"Retrying in {backoff}s..."
+                )
+
+                await asyncio.sleep(backoff)
+
+        raise RuntimeError("LLM review failed unexpectedly.")

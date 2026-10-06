@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.core.config import settings
+from app.main import app
 
 
 client = TestClient(app)
@@ -212,3 +212,37 @@ def test_github_webhook_missing_signature():
     )
 
     assert response.status_code == 403
+
+
+def test_github_webhook_invalid_json():
+    body = b'{"action":"opened",'
+
+    response = client.post(
+        "/api/v1/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "invalid-json-123",
+            "X-Hub-Signature-256": create_signature(body),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid JSON payload"
+
+
+def test_github_webhook_payload_too_large():
+    body = b"x" * (settings.github_webhook_max_body_bytes + 1)
+
+    response = client.post(
+        "/api/v1/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "large-payload-123",
+            "X-Hub-Signature-256": create_signature(body),
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Webhook payload too large"

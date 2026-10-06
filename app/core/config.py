@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     github_client_id: str
     github_private_key_path: str
     github_webhook_secret: str
+    github_webhook_max_body_bytes: int = 1_000_000
 
     gemini_api_key: str
     gemini_model: str = "gemini-2.5-flash"

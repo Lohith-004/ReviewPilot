@@ -1,4 +1,5 @@
 import json
+from json import JSONDecodeError
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 
@@ -19,7 +20,28 @@ async def github_webhook(
     x_github_delivery: str | None = Header(default=None),
     x_hub_signature_256: str | None = Header(default=None),
 ):
+    content_length = request.headers.get("content-length")
+
+    if content_length:
+        try:
+            if int(content_length) > settings.github_webhook_max_body_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail="Webhook payload too large",
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Content-Length header",
+            )
+
     payload = await request.body()
+
+    if len(payload) > settings.github_webhook_max_body_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Webhook payload too large",
+        )
 
     is_valid = verify_github_signature(
         payload=payload,
@@ -33,7 +55,14 @@ async def github_webhook(
             detail="Invalid webhook signature",
         )
 
-    data = json.loads(payload)
+    try:
+        data = json.loads(payload)
+    except JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON payload",
+        )
+
     event = PullRequestEvent.model_validate(data)
 
     # Only process pull request events.

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: str
     gemini_model: str = "gemini-2.5-flash"
+    gemini_timeout_seconds: float = 120.0
 
     redis_url: str = "redis://localhost:6379/0"
 

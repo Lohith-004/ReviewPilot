@@ -60,14 +60,17 @@ class LLMReviewer:
                     f"(attempt {attempt}/{self.MAX_RETRIES})"
                 )
 
-                interaction = await self.client.aio.interactions.create(
-                    model=settings.gemini_model,
-                    input=prompt,
-                    response_format={
-                        "type": "text",
-                        "mime_type": "application/json",
-                        "schema": ReviewResult.model_json_schema(),
-                    },
+                interaction = await asyncio.wait_for(
+                    self.client.aio.interactions.create(
+                        model=settings.gemini_model,
+                        input=prompt,
+                        response_format={
+                            "type": "text",
+                            "mime_type": "application/json",
+                            "schema": ReviewResult.model_json_schema(),
+                        },
+                    ),
+                    timeout=settings.gemini_timeout_seconds,
                 )
 
                 elapsed = time.perf_counter() - start_time
@@ -80,6 +83,28 @@ class LLMReviewer:
                 return ReviewResult.model_validate_json(
                     interaction.output_text
                 )
+
+            except asyncio.TimeoutError:
+                elapsed = time.perf_counter() - start_time
+
+                if attempt == self.MAX_RETRIES:
+                    print(
+                        f"[LLM] Gemini timed out after "
+                        f"{settings.gemini_timeout_seconds}s "
+                        f"on {self.MAX_RETRIES} attempts: {filename}"
+                    )
+                    raise
+
+                backoff = self.INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1))
+
+                print(
+                    f"[LLM] Gemini request timed out after "
+                    f"{settings.gemini_timeout_seconds}s "
+                    f"(elapsed {elapsed:.2f}s). "
+                    f"Retrying in {backoff}s..."
+                )
+
+                await asyncio.sleep(backoff)
 
             except APIError as exc:
                 status_code = getattr(exc, "code", None)

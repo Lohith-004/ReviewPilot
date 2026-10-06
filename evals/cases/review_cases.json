@@ -1,0 +1,53 @@
+[
+  {
+    "id": "sql-injection",
+    "name": "SQL Injection",
+    "filename": "database.py",
+    "patch": "@@ -10,5 +10,5 @@\n def find_user(username):\n-    query = \"SELECT * FROM users WHERE username = ?\"\n-    return db.execute(query, (username,))\n+    query = \"SELECT * FROM users WHERE username = '\" + username + \"'\"\n+    return db.execute(query)",
+    "expected": {
+      "min_findings": 1,
+      "category": "SECURITY",
+      "severity": "HIGH"
+    }
+  },
+  {
+    "id": "hardcoded-secret",
+    "name": "Hardcoded API Secret",
+    "filename": "config.py",
+    "patch": "@@ -1,3 +1,3 @@\n import os\n \n-API_KEY = os.getenv(\"API_KEY\")\n+API_KEY = \"HARDCODED_API_SECRET_VALUE\"",
+    "expected": {
+      "min_findings": 1,
+      "category": "SECURITY",
+      "severity": "HIGH"
+    }
+  },
+  {
+    "id": "logic-bug",
+    "name": "Incorrect Discount Calculation",
+    "filename": "pricing.py",
+    "patch": "@@ -20,5 +20,5 @@\n def calculate_total(price, discount):\n-    return price - (price * discount / 100)\n+    return price + (price * discount / 100)",
+    "expected": {
+      "min_findings": 1,
+      "category": "BUG"
+    }
+  },
+  {
+    "id": "performance",
+    "name": "Repeated Database Query",
+    "filename": "users.py",
+    "patch": "@@ -15,8 +15,10 @@\n def get_user_names(user_ids):\n     names = []\n     for user_id in user_ids:\n+        user = db.execute(\n+            \"SELECT name FROM users WHERE id = ?\",\n+            (user_id,)\n+        ).fetchone()\n+        names.append(user[0])\n     return names",
+    "expected": {
+      "min_findings": 1,
+      "category": "PERFORMANCE"
+    }
+  },
+  {
+    "id": "clean-code",
+    "name": "Clean Change",
+    "filename": "utils.py",
+    "patch": "@@ -1,4 +1,7 @@\n def format_username(username):\n-    return username\n+    username = username.strip()\n+    if not username:\n+        return None\n+    return username.lower()",
+    "expected": {
+      "min_findings": 0
+    }
+  }
+]

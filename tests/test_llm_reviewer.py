@@ -5,8 +5,9 @@ import pytest
 
 from google.genai.errors import APIError
 
-from app.services.llm_reviewer import LLMReviewer
 from app.schemas.review import ReviewResult
+from app.services.llm_reviewer import LLMReviewer
+from app.core.config import settings
 
 
 def create_mock_interaction():
@@ -21,7 +22,10 @@ async def test_llm_reviewer_success():
 
     mock_interaction = create_mock_interaction()
 
-    with patch.object(
+    with patch(
+        "app.services.llm_reviewer.get_langfuse_client",
+        return_value=None,
+    ), patch.object(
         reviewer.client.aio.interactions,
         "create",
         new_callable=AsyncMock,
@@ -50,7 +54,10 @@ async def test_llm_reviewer_retries_on_transient_api_error():
         response_json={"error": {"message": "Service unavailable"}},
     )
 
-    with patch.object(
+    with patch(
+        "app.services.llm_reviewer.get_langfuse_client",
+        return_value=None,
+    ), patch.object(
         reviewer.client.aio.interactions,
         "create",
         new_callable=AsyncMock,
@@ -81,11 +88,10 @@ async def test_llm_reviewer_retries_on_timeout():
 
     mock_interaction = create_mock_interaction()
 
-    async def slow_request(*args, **kwargs):
-        await asyncio.sleep(1)
-        return mock_interaction
-
-    with patch.object(
+    with patch(
+        "app.services.llm_reviewer.get_langfuse_client",
+        return_value=None,
+    ), patch.object(
         reviewer.client.aio.interactions,
         "create",
         new_callable=AsyncMock,
@@ -116,7 +122,10 @@ async def test_llm_reviewer_fails_after_max_retries():
 
     timeout_error = asyncio.TimeoutError()
 
-    with patch.object(
+    with patch(
+        "app.services.llm_reviewer.get_langfuse_client",
+        return_value=None,
+    ), patch.object(
         reviewer.client.aio.interactions,
         "create",
         new_callable=AsyncMock,
@@ -134,3 +143,89 @@ async def test_llm_reviewer_fails_after_max_retries():
 
     assert mock_create.await_count == 3
     assert mock_sleep.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_llm_reviewer_creates_langfuse_generation():
+    reviewer = LLMReviewer()
+
+    mock_interaction = create_mock_interaction()
+
+    mock_langfuse = MagicMock()
+    mock_generation = MagicMock()
+
+    mock_langfuse.start_as_current_observation.return_value.__enter__.return_value = (
+        mock_generation
+    )
+
+    with patch(
+        "app.services.llm_reviewer.get_langfuse_client",
+        return_value=mock_langfuse,
+    ), patch.object(
+        reviewer.client.aio.interactions,
+        "create",
+        new_callable=AsyncMock,
+        return_value=mock_interaction,
+    ):
+
+        result = await reviewer.review(
+            filename="app/main.py",
+            patch="+print('secret SQL query')",
+        )
+
+    assert isinstance(result, ReviewResult)
+
+    mock_langfuse.start_as_current_observation.assert_called_once_with(
+        name="gemini-code-review",
+        as_type="generation",
+        model=settings.gemini_model,
+        metadata={
+            "filename": "app/main.py",
+        },
+    )
+
+    mock_generation.update.assert_called()
+
+    mock_langfuse.flush.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_llm_reviewer_does_not_store_raw_patch_in_langfuse():
+    reviewer = LLMReviewer()
+
+    mock_interaction = create_mock_interaction()
+
+    mock_langfuse = MagicMock()
+    mock_generation = MagicMock()
+
+    mock_langfuse.start_as_current_observation.return_value.__enter__.return_value = (
+        mock_generation
+    )
+
+    sensitive_patch = "SELECT * FROM users WHERE password = 'super-secret-value'"
+
+    with patch(
+        "app.services.llm_reviewer.get_langfuse_client",
+        return_value=mock_langfuse,
+    ), patch.object(
+        reviewer.client.aio.interactions,
+        "create",
+        new_callable=AsyncMock,
+        return_value=mock_interaction,
+    ):
+
+        await reviewer.review(
+            filename="app/auth.py",
+            patch=sensitive_patch,
+        )
+
+    observation_call = (
+        mock_langfuse.start_as_current_observation.call_args
+    )
+
+    observation_arguments = str(observation_call)
+
+    assert sensitive_patch not in observation_arguments
+
+    for call in mock_generation.update.call_args_list:
+        assert sensitive_patch not in str(call)

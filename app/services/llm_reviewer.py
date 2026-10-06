@@ -1,11 +1,13 @@
 import asyncio
 import time
+from typing import Any
 
 from google import genai
 from google.genai.errors import APIError
 
 from app.core.config import settings
 from app.schemas.review import ReviewResult
+from app.services.observability import get_langfuse_client
 
 
 SYSTEM_PROMPT = (
@@ -53,6 +55,70 @@ class LLMReviewer:
             "Return only the structured review result."
         )
 
+        langfuse = get_langfuse_client()
+
+        if langfuse is None:
+            return await self._execute_review(
+                filename=filename,
+                prompt=prompt,
+                start_time=start_time,
+                generation=None,
+            )
+
+        with langfuse.start_as_current_observation(
+            name="gemini-code-review",
+            as_type="generation",
+            model=settings.gemini_model,
+            metadata={
+                "filename": filename,
+            },
+        ) as generation:
+            try:
+                result = await self._execute_review(
+                    filename=filename,
+                    prompt=prompt,
+                    start_time=start_time,
+                    generation=generation,
+                )
+
+                elapsed = time.perf_counter() - start_time
+
+                generation.update(
+                    output={
+                        "finding_count": len(result.findings),
+                    },
+                    metadata={
+                        "filename": filename,
+                        "latency_seconds": f"{elapsed:.2f}",
+                    },
+                )
+
+                return result
+
+            except Exception as exc:
+                elapsed = time.perf_counter() - start_time
+
+                generation.update(
+                    level="ERROR",
+                    status_message=str(exc),
+                    metadata={
+                        "filename": filename,
+                        "latency_seconds": f"{elapsed:.2f}",
+                    },
+                )
+
+                raise
+
+            finally:
+                langfuse.flush()
+
+    async def _execute_review(
+        self,
+        filename: str,
+        prompt: str,
+        start_time: float,
+        generation: Any | None,
+    ) -> ReviewResult:
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
                 print(
@@ -75,17 +141,38 @@ class LLMReviewer:
 
                 elapsed = time.perf_counter() - start_time
 
+                result = ReviewResult.model_validate_json(
+                    interaction.output_text
+                )
+
+                if generation is not None:
+                    generation.update(
+                        metadata={
+                            "filename": filename,
+                            "attempts": str(attempt),
+                            "latency_seconds": f"{elapsed:.2f}",
+                        },
+                    )
+
                 print(
                     f"[LLM] Completed review: {filename} "
                     f"in {elapsed:.2f}s"
                 )
 
-                return ReviewResult.model_validate_json(
-                    interaction.output_text
-                )
+                return result
 
             except asyncio.TimeoutError:
                 elapsed = time.perf_counter() - start_time
+
+                if generation is not None:
+                    generation.update(
+                        metadata={
+                            "filename": filename,
+                            "attempts": str(attempt),
+                            "last_error": "timeout",
+                            "latency_seconds": f"{elapsed:.2f}",
+                        },
+                    )
 
                 if attempt == self.MAX_RETRIES:
                     print(
@@ -95,7 +182,10 @@ class LLMReviewer:
                     )
                     raise
 
-                backoff = self.INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                backoff = (
+                    self.INITIAL_BACKOFF_SECONDS
+                    * (2 ** (attempt - 1))
+                )
 
                 print(
                     f"[LLM] Gemini request timed out after "
@@ -109,17 +199,29 @@ class LLMReviewer:
             except APIError as exc:
                 status_code = getattr(exc, "code", None)
 
+                if generation is not None:
+                    generation.update(
+                        metadata={
+                            "filename": filename,
+                            "attempts": str(attempt),
+                            "last_error": f"HTTP {status_code}",
+                        },
+                    )
+
                 if status_code not in {429, 500, 502, 503, 504}:
                     raise
 
                 if attempt == self.MAX_RETRIES:
                     print(
-                        f"[LLM] Gemini failed after {self.MAX_RETRIES} "
-                        f"attempts: {filename}"
+                        f"[LLM] Gemini failed after "
+                        f"{self.MAX_RETRIES} attempts: {filename}"
                     )
                     raise
 
-                backoff = self.INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                backoff = (
+                    self.INITIAL_BACKOFF_SECONDS
+                    * (2 ** (attempt - 1))
+                )
 
                 print(
                     f"[LLM] Gemini temporarily unavailable "

@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 from time import time
 
@@ -7,12 +8,42 @@ import jwt
 from app.core.config import settings
 
 
+def _load_private_key() -> str:
+    """
+    Load the GitHub App private key.
+
+    Production deployments can provide the key as a base64-encoded
+    environment variable. Local/Render deployments can provide a file path.
+    """
+
+    if settings.github_private_key_base64:
+        try:
+            return base64.b64decode(
+                settings.github_private_key_base64
+            ).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise RuntimeError(
+                "Invalid GITHUB_PRIVATE_KEY_BASE64 value"
+            ) from exc
+
+    if settings.github_private_key_path:
+        return Path(
+            settings.github_private_key_path
+        ).read_text()
+
+    raise RuntimeError(
+        "GitHub App private key is not configured. "
+        "Set GITHUB_PRIVATE_KEY_BASE64 or "
+        "GITHUB_PRIVATE_KEY_PATH."
+    )
+
+
 def create_github_app_jwt() -> str:
     """
     Create a short-lived JWT for authenticating as the GitHub App.
     """
 
-    private_key = Path(settings.github_private_key_path).read_text()
+    private_key = _load_private_key()
 
     now = int(time())
 

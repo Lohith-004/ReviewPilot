@@ -6,7 +6,8 @@ class Settings(BaseSettings):
 
     github_app_id: int
     github_client_id: str
-    github_private_key_path: str
+    github_private_key_path: str | None = None
+    github_private_key_base64: str | None = None
     github_webhook_secret: str
     github_webhook_max_body_bytes: int = 1_000_000
 

@@ -2,6 +2,7 @@ import json
 from json import JSONDecodeError
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.queue import review_queue
@@ -63,7 +64,13 @@ async def github_webhook(
             detail="Invalid JSON payload",
         )
 
-    event = PullRequestEvent.model_validate(data)
+    try:
+        event = PullRequestEvent.model_validate(data)
+    except ValidationError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid GitHub pull request payload",
+        )
 
     # Only process pull request events.
     if x_github_event != "pull_request":

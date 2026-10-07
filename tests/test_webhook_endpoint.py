@@ -231,6 +231,48 @@ def test_github_webhook_invalid_json():
     assert response.json()["detail"] == "Invalid JSON payload"
 
 
+def test_github_webhook_invalid_payload_schema():
+    payload = {
+        "action": "opened",
+        "number": 42,
+        "installation": {
+            "id": 167303229,
+            "node_id": "test-node",
+        },
+        "pull_request": {
+            "number": 42,
+            "title": "Invalid Payload Test",
+            "user": {
+                "login": "Lohith-004",
+            },
+            "head": {
+                "sha": "abc123head",
+            },
+            "base": {
+                "sha": "def456base",
+            },
+        },
+        "repository": {
+            "name": "ReviewPilot",
+        },
+    }
+
+    body = json.dumps(payload).encode("utf-8")
+
+    response = client.post(
+        "/api/v1/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "invalid-schema-123",
+            "X-Hub-Signature-256": create_signature(body),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid GitHub pull request payload"
+
+
 def test_github_webhook_payload_too_large():
     body = b"x" * (settings.github_webhook_max_body_bytes + 1)
 

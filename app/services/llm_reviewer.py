@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -8,6 +9,9 @@ from google.genai.errors import APIError
 from app.core.config import settings
 from app.schemas.review import ReviewResult
 from app.services.observability import get_langfuse_client
+
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = (
@@ -143,9 +147,12 @@ class LLMReviewer:
     ) -> ReviewResult:
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
-                print(
-                    f"[LLM] Starting review: {filename} "
-                    f"(attempt {attempt}/{self.MAX_RETRIES})"
+                logger.info(
+                    "Starting Gemini review for %s "
+                    "(attempt %s/%s)",
+                    filename,
+                    attempt,
+                    self.MAX_RETRIES,
                 )
 
                 interaction = await asyncio.wait_for(
@@ -176,9 +183,10 @@ class LLMReviewer:
                         },
                     )
 
-                print(
-                    f"[LLM] Completed review: {filename} "
-                    f"in {elapsed:.2f}s"
+                logger.info(
+                    "Completed Gemini review for %s in %.2fs",
+                    filename,
+                    elapsed,
                 )
 
                 return result
@@ -197,10 +205,11 @@ class LLMReviewer:
                     )
 
                 if attempt == self.MAX_RETRIES:
-                    print(
-                        f"[LLM] Gemini timed out after "
-                        f"{settings.gemini_timeout_seconds}s"
-                        f"on {self.MAX_RETRIES} attempts: {filename}"
+                    logger.error(
+                        "Gemini timed out after %ss on %s attempts for %s",
+                        settings.gemini_timeout_seconds,
+                        self.MAX_RETRIES,
+                        filename,
                     )
                     raise
 
@@ -209,11 +218,12 @@ class LLMReviewer:
                     * (2 ** (attempt - 1))
                 )
 
-                print(
-                    f"[LLM] Gemini request timed out after "
-                    f"{settings.gemini_timeout_seconds}s "
-                    f"(elapsed {elapsed:.2f}s). "
-                    f"Retrying in {backoff}s..."
+                logger.warning(
+                    "Gemini request timed out after %ss "
+                    "(elapsed %.2fs). Retrying in %ss...",
+                    settings.gemini_timeout_seconds,
+                    elapsed,
+                    backoff,
                 )
 
                 await asyncio.sleep(backoff)
@@ -234,9 +244,10 @@ class LLMReviewer:
                     raise
 
                 if attempt == self.MAX_RETRIES:
-                    print(
-                        f"[LLM] Gemini failed after "
-                        f"{self.MAX_RETRIES} attempts: {filename}"
+                    logger.error(
+                        "Gemini failed after %s attempts for %s",
+                        self.MAX_RETRIES,
+                        filename,
                     )
                     raise
 
@@ -245,10 +256,11 @@ class LLMReviewer:
                     * (2 ** (attempt - 1))
                 )
 
-                print(
-                    f"[LLM] Gemini temporarily unavailable "
-                    f"(HTTP {status_code}). "
-                    f"Retrying in {backoff}s..."
+                logger.warning(
+                    "Gemini temporarily unavailable "
+                    "(HTTP %s). Retrying in %ss...",
+                    status_code,
+                    backoff,
                 )
 
                 await asyncio.sleep(backoff)

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 
 from app.services.github_pull_request import get_pull_request_details
@@ -10,6 +11,9 @@ from app.services.review_persistence import (
     create_review_run,
     fail_review_run,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def process_review_job(
@@ -25,9 +29,11 @@ def process_review_job(
     async def run_review():
         pipeline_start = time.perf_counter()
 
-        print(
-            f"[WORKER] Starting review pipeline: "
-            f"{owner}/{repo}#{pull_request_number}"
+        logger.info(
+            "Starting review pipeline for %s/%s#%s",
+            owner,
+            repo,
+            pull_request_number,
         )
 
         details_start = time.perf_counter()
@@ -39,9 +45,9 @@ def process_review_job(
             pull_request_number=pull_request_number,
         )
 
-        print(
-            f"[WORKER] PR details fetched "
-            f"in {time.perf_counter() - details_start:.2f}s"
+        logger.info(
+            "PR details fetched in %.2fs",
+            time.perf_counter() - details_start,
         )
 
         review_run = create_review_run(
@@ -50,9 +56,10 @@ def process_review_job(
             commit_sha=pr_details["head_sha"],
         )
 
-        print(
-            f"[DB] Created review run "
-            f"id={review_run.id} status={review_run.status}"
+        logger.info(
+            "Created review run id=%s status=%s",
+            review_run.id,
+            review_run.status,
         )
 
         try:
@@ -65,9 +72,9 @@ def process_review_job(
                 pull_request_number=pull_request_number,
             )
 
-            print(
-                f"[WORKER] Diff + Gemini stage completed "
-                f"in {time.perf_counter() - review_start:.2f}s"
+            logger.info(
+                "Diff + Gemini stage completed in %.2fs",
+                time.perf_counter() - review_start,
             )
 
             all_findings = []
@@ -75,9 +82,9 @@ def process_review_job(
             for result in results:
                 all_findings.extend(result.findings)
 
-            print(
-                f"[WORKER] Total findings collected: "
-                f"{len(all_findings)}"
+            logger.info(
+                "Total findings collected: %s",
+                len(all_findings),
             )
 
             comments = build_github_review_comments(all_findings)
@@ -100,14 +107,13 @@ def process_review_job(
                     comments=comments,
                 )
 
-                print(
-                    f"[WORKER] GitHub review posted "
-                    f"in {time.perf_counter() - review_start:.2f}s"
+                logger.info(
+                    "GitHub review posted in %.2fs",
+                    time.perf_counter() - review_start,
                 )
             else:
-                print(
-                    "[WORKER] No findings. "
-                    "Skipping GitHub review."
+                logger.info(
+                    "No findings. Skipping GitHub review."
                 )
 
             complete_review_run(
@@ -115,15 +121,15 @@ def process_review_job(
                 findings=all_findings,
             )
 
-            print(
-                f"[DB] Review run {review_run.id} "
-                f"marked completed with "
-                f"{len(all_findings)} findings"
+            logger.info(
+                "Review run %s marked completed with %s findings",
+                review_run.id,
+                len(all_findings),
             )
 
-            print(
-                f"[WORKER] Total pipeline time: "
-                f"{time.perf_counter() - pipeline_start:.2f}s"
+            logger.info(
+                "Total pipeline time: %.2fs",
+                time.perf_counter() - pipeline_start,
             )
 
             return results, review
@@ -131,9 +137,9 @@ def process_review_job(
         except Exception:
             fail_review_run(review_run.id)
 
-            print(
-                f"[DB] Review run {review_run.id} "
-                "marked failed"
+            logger.exception(
+                "Review run %s failed",
+                review_run.id,
             )
 
             raise
@@ -145,10 +151,12 @@ def process_review_job(
         for result in results
     )
 
-    print(
-        f"Review completed: "
-        f"{owner}/{repo}#{pull_request_number} "
-        f"with {total_findings} findings."
+    logger.info(
+        "Review completed for %s/%s#%s with %s findings",
+        owner,
+        repo,
+        pull_request_number,
+        total_findings,
     )
 
     return {
